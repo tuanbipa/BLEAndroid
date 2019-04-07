@@ -68,6 +68,8 @@ public class BLEService extends Service {
     public void onCreate() {
         super.onCreate();
 
+        showNotification("BLEAndroid", "Scanning...", true);
+
         bleManager = (BluetoothManager)getSystemService(Context.BLUETOOTH_SERVICE);
         bleAdapter = bleManager.getAdapter();
         bleScanner = bleAdapter.getBluetoothLeScanner();
