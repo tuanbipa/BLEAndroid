@@ -1,7 +1,10 @@
 package com.tubipa.bleandroid;
 
-import android.Manifest;
-import android.app.AlertDialog;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.app.Service;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothGatt;
@@ -17,110 +20,88 @@ import android.bluetooth.le.ScanFilter;
 import android.bluetooth.le.ScanResult;
 import android.bluetooth.le.ScanSettings;
 import android.content.Context;
-import android.content.DialogInterface;
 import android.content.Intent;
-import android.content.pm.PackageManager;
-import android.net.wifi.aware.Characteristics;
-import android.os.AsyncTask;
+import android.graphics.Color;
+import android.media.RingtoneManager;
+import android.net.Uri;
 import android.os.Build;
+import android.os.IBinder;
 import android.os.ParcelUuid;
-import android.support.v7.app.AppCompatActivity;
-import android.os.Bundle;
+import android.support.annotation.Nullable;
+import android.support.v4.app.NotificationCompat;
 import android.text.TextUtils;
 import android.util.Log;
-import android.view.View;
-import android.widget.Button;
 
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
 import java.util.UUID;
 
-public class MainActivity extends AppCompatActivity implements View.OnClickListener {
+public class BLEService extends Service {
 
-    private static final String TAG = MainActivity.class.getSimpleName();
+    private static final String TAG = BLEService.class.getSimpleName();
 
-    //private static final UUID UUID_Service = UUID.fromString("19fc95c0-c111–11e3–9904–0002a5d5c51b");
-    private static final ParcelUuid UID_SERVICE =
-            ParcelUuid.fromString("F4FFFD0B-549C-4A3A-91CB-C5886BD972CD");
 
     private static final String heartRateServiceCBUUID = "F4FFFD0B-549C-4A3A-91CB-C5886BD972CD";
     private static final String bodySensorLocationCharacteristicCBUUID = "A10A608E-ECAC-4A9F-9BDC-9624DAC4C423";
     private static final String heartRateMeasurementCharacteristicCBUUID = "11F974B5-41E7-459B-A1E1-2A4906466A1D";
     private static final String CHARACTERISTIC_UPDATE_NOTIFICATION_DESCRIPTOR_UUID = "0002902-0000-1000-8000-00805f9b34fb";
+
+    private static final ParcelUuid UID_SERVICE =
+            ParcelUuid.fromString(heartRateServiceCBUUID);
+
     BluetoothManager bleManager;
     BluetoothAdapter bleAdapter;
     BluetoothLeScanner bleScanner;
     BluetoothGatt bluetoothGatt;
     String mBluetoothDeviceAddress;
 
-    private ArrayList<ArrayList<BluetoothGattCharacteristic>> mGattCharacteristics =
-            new ArrayList<ArrayList<BluetoothGattCharacteristic>>();
-
-    private final static int REQUEST_ENABLE_BT = 1;
-    private static final int PERMISSION_REQUEST_COARSE_LOCATION = 1;
-
-    Button btStartScan, btStopScan;
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
-        btStartScan = findViewById(R.id.btStartScan);
-        btStopScan = findViewById(R.id.btStopScan);
+    public IBinder onBind(Intent intent) {
+        return null;
+    }
 
-        btStopScan.setOnClickListener(this);
-        btStartScan.setOnClickListener(this);
+    @Override
+    public void onCreate() {
+        super.onCreate();
 
         bleManager = (BluetoothManager)getSystemService(Context.BLUETOOTH_SERVICE);
         bleAdapter = bleManager.getAdapter();
         bleScanner = bleAdapter.getBluetoothLeScanner();
 
-        if (bleAdapter != null && !bleAdapter.isEnabled()) {
-            Intent enableIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
-            startActivityForResult(enableIntent,REQUEST_ENABLE_BT);
-        }
-
-        // Make sure we have access coarse location enabled, if not, prompt the user to enable it
-        if (this.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            final AlertDialog.Builder builder = new AlertDialog.Builder(this);
-            builder.setTitle("This app needs location access");
-            builder.setMessage("Please grant location access so this app can detect peripherals.");
-            builder.setPositiveButton(android.R.string.ok, null);
-            builder.setOnDismissListener(new DialogInterface.OnDismissListener() {
-                @Override
-                public void onDismiss(DialogInterface dialog) {
-                    requestPermissions(new String[]{Manifest.permission.ACCESS_COARSE_LOCATION}, PERMISSION_REQUEST_COARSE_LOCATION);
-                }
-            });
-            builder.show();
-        }
+        startScanning();
     }
 
     @Override
-    public void onRequestPermissionsResult(int requestCode,
-                                           String permissions[], int[] grantResults) {
-        switch (requestCode) {
-            case PERMISSION_REQUEST_COARSE_LOCATION: {
-                if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                    System.out.println("coarse location permission granted");
-                } else {
-                    final AlertDialog.Builder builder = new AlertDialog.Builder(this);
-                    builder.setTitle("Functionality limited");
-                    builder.setMessage("Since location access has not been granted, this app will not be able to discover beacons when in the background.");
-                    builder.setPositiveButton(android.R.string.ok, null);
-                    builder.setOnDismissListener(new DialogInterface.OnDismissListener() {
+    public void onDestroy() {
+        super.onDestroy();
+        disconnect();
+        close();
+    }
 
-                        @Override
-                        public void onDismiss(DialogInterface dialog) {
-                        }
-
-                    });
-                    builder.show();
-                }
-                return;
-            }
+    public void disconnect() {
+        if (bleAdapter == null || bluetoothGatt == null) {
+            Log.w(TAG, "BluetoothAdapter not initialized");
+            return;
         }
+        bluetoothGatt.disconnect();
+    }
+
+    public void close() {
+        if (bluetoothGatt == null) {
+            return;
+        }
+        bluetoothGatt.close();
+        bluetoothGatt = null;
+        mBluetoothDeviceAddress = null;
+    }
+
+    void startScanning(){
+        Log.d(TAG , "Scanning...");
+        ScanFilter scanFilter = new ScanFilter.Builder().setServiceUuid(UID_SERVICE).build();
+        ScanSettings settings =new ScanSettings.Builder()
+                .setScanMode(ScanSettings.SCAN_MODE_BALANCED).setReportDelay(0).build();
+
+        bleScanner.startScan(Arrays.asList(scanFilter), settings, leScanCallback);
     }
 
     private ScanCallback leScanCallback = new ScanCallback() {
@@ -149,25 +130,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         }
     };
 
-    public void disconnect() {
-        if (bleAdapter == null || bluetoothGatt == null) {
-            Log.w(TAG, "BluetoothAdapter not initialized");
-            return;
-        }
-        bluetoothGatt.disconnect();
-    }
-
-    public void close() {
-        if (bluetoothGatt == null) {
-            return;
-        }
-        bluetoothGatt.close();
-        bluetoothGatt = null;
-        mBluetoothDeviceAddress = null;
-    }
-
     void connect(String address){
-
 
         if (TextUtils.isEmpty(address)){
             Log.d(TAG, "Can not connect, address is null");
@@ -189,7 +152,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         }
 
         Log.d(TAG, "Connecting to " + address);
-        bluetoothGatt = device.connectGatt(this, true, mGattCallback);
+        bluetoothGatt = device.connectGatt(this, false, mGattCallback);
         mBluetoothDeviceAddress = address;
     }
 
@@ -197,7 +160,6 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         @Override
         public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
             super.onConnectionStateChange(gatt, status, newState);
-            String intentAction;
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 Log.i(TAG, "Connected to GATT server.");
                 // Attempts to discover services after successful connection.
@@ -206,10 +168,11 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 Log.i(TAG, "Disconnected from GATT server.");
-                String addres = mBluetoothDeviceAddress;
+
+                String address = mBluetoothDeviceAddress;
                 disconnect();
                 close();
-                connect(addres);
+                connect(address);
             }
         }
 
@@ -257,6 +220,8 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                 for(byte byteChar : data)
                     stringBuilder.append(String.format("%02X ", byteChar));
                 Log.d(TAG, "Changed: " + " " + stringBuilder.toString());
+
+                showNotification("BLEAndroid", "Changed: " + " " + stringBuilder.toString(), true);
             }
         }
 
@@ -324,6 +289,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         bluetoothGatt.readCharacteristic(characteristic);
     }
 
+
     /**
      * Retrieves a list of supported GATT services on the connected device. This should be
      * invoked only after {@code BluetoothGatt#discoverServices()} completes successfully.
@@ -336,34 +302,61 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         return bluetoothGatt.getServices();
     }
 
-    void startScanning(){
+    private void showNotification(String title, String content, boolean hasSound) {
 
-        Log.d(TAG , "Scanning...");
-        ScanFilter scanFilter = new ScanFilter.Builder().setServiceUuid(UID_SERVICE).build();
-        ScanSettings settings =new ScanSettings.Builder()
-                .setScanMode(ScanSettings.SCAN_MODE_BALANCED).setReportDelay(0).build();
+        Log.i(TAG, content);
 
-        bleScanner.startScan(Arrays.asList(scanFilter), settings, leScanCallback);
+        String chanelID = "";
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            chanelID = createNotificationChannel();
+        }
+        Intent notificationIntent = new Intent(this, MainActivity.class);
+        notificationIntent.setAction(Constants.ACTION.MAIN_ACTION);
+        notificationIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        PendingIntent pendingIntent = PendingIntent.getActivity(this, 0,
+                notificationIntent, 0);
+
+
+        NotificationCompat.Builder mBuilder = new NotificationCompat.Builder(this, chanelID)
+                .setContentTitle(title)
+                .setContentText(content)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setContentIntent(pendingIntent)
+                .setOngoing(true);
+
+        Uri soundUri = null;
+        if (hasSound){
+            //Define sound URI
+            soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+            mBuilder.setSound(soundUri);
+
+        }
+        Notification notification = mBuilder.build();
+
+        startForeground(Constants.NOTIFICATION_ID.FOREGROUND_SERVICE,
+                notification);
+
     }
 
-    void startService(){
-        Intent service = new Intent(this, BLEService.class);
-        if (android.os.Build.VERSION.SDK_INT >= Build.VERSION_CODES.O){
-            startForegroundService(service);
-        }else{
-            startService(service);
-        }
-    }
+    String createNotificationChannel() {
+        String channelId = "ble_channel_id";
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationManager notificationManager =
+                    (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
 
-    @Override
-    public void onClick(View view) {
-        switch (view.getId()){
-            case R.id.btStartScan:
-                //startScanning();
-                startService();
-                finish();
-                break;
-                default:break;
+
+            CharSequence channelName = "BLE Tracker";
+            int importance = NotificationManager.IMPORTANCE_LOW;
+            NotificationChannel notificationChannel = new NotificationChannel(channelId, channelName, importance);
+            notificationChannel.enableLights(true);
+            notificationChannel.setLightColor(Color.RED);
+            notificationChannel.enableVibration(true);
+            notificationChannel.setShowBadge(true);
+            notificationChannel.setVibrationPattern(new long[]{100, 200, 300, 400, 500, 400, 300, 200, 400});
+            notificationManager.createNotificationChannel(notificationChannel);
         }
+        return channelId;
     }
 }
