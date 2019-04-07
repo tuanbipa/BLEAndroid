@@ -67,9 +67,6 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         btStartScan = findViewById(R.id.btStartScan);
-        btStopScan = findViewById(R.id.btStopScan);
-
-        btStopScan.setOnClickListener(this);
         btStartScan.setOnClickListener(this);
 
         bleManager = (BluetoothManager)getSystemService(Context.BLUETOOTH_SERVICE);

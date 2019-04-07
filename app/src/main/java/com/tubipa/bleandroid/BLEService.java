@@ -40,11 +40,15 @@ public class BLEService extends Service {
 
     private static final String TAG = BLEService.class.getSimpleName();
 
-
-    private static final String heartRateServiceCBUUID = "F4FFFD0B-549C-4A3A-91CB-C5886BD972CD";
-    private static final String bodySensorLocationCharacteristicCBUUID = "A10A608E-ECAC-4A9F-9BDC-9624DAC4C423";
-    private static final String heartRateMeasurementCharacteristicCBUUID = "11F974B5-41E7-459B-A1E1-2A4906466A1D";
+    private static final String heartRateServiceCBUUID = "ab0828b1-198e-4351-b779-901fa0e0371e";
+    private static final String heartRateMeasurementCharacteristicCBUUID = "0972EF8C-7613-4075-AD52-756F33D4DA91";
     private static final String CHARACTERISTIC_UPDATE_NOTIFICATION_DESCRIPTOR_UUID = "0002902-0000-1000-8000-00805f9b34fb";
+    private static final String bodySensorLocationCharacteristicCBUUID = "A10A608E-ECAC-4A9F-9BDC-9624DAC4C423";
+
+//    private static final String heartRateServiceCBUUID = "F4FFFD0B-549C-4A3A-91CB-C5886BD972CD";
+//    private static final String bodySensorLocationCharacteristicCBUUID = "A10A608E-ECAC-4A9F-9BDC-9624DAC4C423";
+//    private static final String heartRateMeasurementCharacteristicCBUUID = "11F974B5-41E7-459B-A1E1-2A4906466A1D";
+//    private static final String CHARACTERISTIC_UPDATE_NOTIFICATION_DESCRIPTOR_UUID = "0002902-0000-1000-8000-00805f9b34fb";
 
     private static final ParcelUuid UID_SERVICE =
             ParcelUuid.fromString(heartRateServiceCBUUID);
@@ -96,6 +100,8 @@ public class BLEService extends Service {
     }
 
     void startScanning(){
+        showNotification("BLEAndroid", "Scanning...", true);
+
         Log.d(TAG , "Scanning...");
         ScanFilter scanFilter = new ScanFilter.Builder().setServiceUuid(UID_SERVICE).build();
         ScanSettings settings =new ScanSettings.Builder()
@@ -108,6 +114,8 @@ public class BLEService extends Service {
         @Override
         public void onScanResult(int callbackType, ScanResult result) {
             Log.d(TAG, "Found: Device Name: " + result.getDevice().getName() + "Device Address: " + result.getDevice().getAddress()  + " rssi: " + result.getRssi() + "\n");
+
+            showNotification("BLEAndroid", "Found: Device Name: " + result.getDevice().getName(), true);
 
             //Stop scan if found
             bleScanner.stopScan(leScanCallback);
@@ -165,6 +173,8 @@ public class BLEService extends Service {
                 // Attempts to discover services after successful connection.
                 Log.i(TAG, "Attempting to start service discovery:" +
                         bluetoothGatt.discoverServices());
+
+                showNotification("BLEAndroid", "Connected to GATT server.", true);
 
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 Log.i(TAG, "Disconnected from GATT server.");
