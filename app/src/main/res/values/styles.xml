@@ -8,4 +8,9 @@
         <item name="colorAccent">@color/colorAccent</item>
     </style>
 
+    <style name="DisconnectButton" parent="Theme.AppCompat.Light">
+        <item name="colorControlHighlight">@android:color/white</item>
+        <item name="colorButtonNormal">@android:color/black</item>
+    </style>
+
 </resources>

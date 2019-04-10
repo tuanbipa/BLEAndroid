@@ -27,10 +27,11 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.ParcelUuid;
-import android.support.annotation.Nullable;
 import android.support.v4.app.NotificationCompat;
 import android.text.TextUtils;
 import android.util.Log;
+
+import org.greenrobot.eventbus.EventBus;
 
 import java.util.Arrays;
 import java.util.List;
@@ -40,8 +41,10 @@ public class BLEService extends Service {
 
     private static final String TAG = BLEService.class.getSimpleName();
 
-    private static final String heartRateServiceCBUUID = "ab0828b1-198e-4351-b779-901fa0e0371e";
+    private static final String heartRateServiceCBUUID = "AB0828B1-198E-4351-B779-901FA0E0371E";
+
     private static final String heartRateMeasurementCharacteristicCBUUID = "0972EF8C-7613-4075-AD52-756F33D4DA91";
+
     private static final String CHARACTERISTIC_UPDATE_NOTIFICATION_DESCRIPTOR_UUID = "0002902-0000-1000-8000-00805f9b34fb";
     private static final String bodySensorLocationCharacteristicCBUUID = "A10A608E-ECAC-4A9F-9BDC-9624DAC4C423";
 
@@ -58,6 +61,7 @@ public class BLEService extends Service {
     BluetoothLeScanner bleScanner;
     BluetoothGatt bluetoothGatt;
     String mBluetoothDeviceAddress;
+    String mBluetoothDeviceName;
 
     @Override
     public IBinder onBind(Intent intent) {
@@ -74,7 +78,30 @@ public class BLEService extends Service {
         bleAdapter = bleManager.getAdapter();
         bleScanner = bleAdapter.getBluetoothLeScanner();
 
-        startScanning();
+    }
+
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+
+        if (intent != null) {
+            if (intent.getAction() != null) {
+                if (intent.getAction().equals(Constants.ACTION.CONNECT_ACTION)) {
+
+                    String address = intent.getStringExtra("address");
+                    String name = intent.getStringExtra("name");
+
+                    connect(address, name);
+                }else if (intent.getAction().equals(Constants.ACTION.DISCONNECT_ACTION)){
+                    disconnect();
+                    close();
+                }else if (intent.getAction().equals(Constants.ACTION.SCAN_ACTION)){
+                    startScanning();
+                }else if (intent.getAction().equals(Constants.ACTION.STOP_SCAN_ACTION)){
+                    stopScan();
+                }
+            }
+        }
+        return START_STICKY;
     }
 
     @Override
@@ -83,13 +110,21 @@ public class BLEService extends Service {
         disconnect();
         close();
     }
-
+    //147 doc lap
     public void disconnect() {
+
+        SaveStore.saveString(Constants.KEY_CONNECTED_ADDRESS, null);
+
+        EventBus.getDefault().post(new MainEvents.BLEConnection(0, mBluetoothDeviceAddress));
+
+        showNotification("BLEAndroid", "Disconnected", true);
+
         if (bleAdapter == null || bluetoothGatt == null) {
             Log.w(TAG, "BluetoothAdapter not initialized");
             return;
         }
         bluetoothGatt.disconnect();
+
     }
 
     public void close() {
@@ -101,13 +136,21 @@ public class BLEService extends Service {
         mBluetoothDeviceAddress = null;
     }
 
+    void stopScan(){
+        showNotification("BLEAndroid", "Scan finished!", true);
+        EventBus.getDefault().post(new MainEvents.BLEStopScanning());
+        bleScanner.stopScan(leScanCallback);
+    }
+
     void startScanning(){
+
+        EventBus.getDefault().post(new MainEvents.BLEStartScanning());
         showNotification("BLEAndroid", "Scanning...", true);
 
         Log.d(TAG , "Scanning...");
-        ScanFilter scanFilter = new ScanFilter.Builder().setServiceUuid(UID_SERVICE).build();
+        ScanFilter scanFilter = new ScanFilter.Builder().build();
         ScanSettings settings =new ScanSettings.Builder()
-                .setScanMode(ScanSettings.SCAN_MODE_BALANCED).setReportDelay(0).build();
+                .setScanMode(ScanSettings.SCAN_MODE_LOW_POWER).setReportDelay(0).build();
 
         bleScanner.startScan(Arrays.asList(scanFilter), settings, leScanCallback);
     }
@@ -116,14 +159,15 @@ public class BLEService extends Service {
         @Override
         public void onScanResult(int callbackType, ScanResult result) {
             Log.d(TAG, "Found: Device Name: " + result.getDevice().getName() + "Device Address: " + result.getDevice().getAddress()  + " rssi: " + result.getRssi() + "\n");
+            EventBus.getDefault().post(new MainEvents.BLEScanning(result.getDevice()));
 
-            showNotification("BLEAndroid", "Found: Device Name: " + result.getDevice().getName(), true);
-
-            //Stop scan if found
-            bleScanner.stopScan(leScanCallback);
-            Log.d(TAG , "Stopped");
-
-            connect(result.getDevice().getAddress());
+//            showNotification("BLEAndroid", "Found: Device Name: " + result.getDevice().getName(), true);
+//
+//            //Stop scan if found
+//            bleScanner.stopScan(leScanCallback);
+//            Log.d(TAG , "Stopped");
+//
+//            connect(result.getDevice().getAddress(), result.getDevice().getName());
         }
 
         @Override
@@ -140,7 +184,7 @@ public class BLEService extends Service {
         }
     };
 
-    void connect(String address){
+    void connect(String address, String name){
 
         if (TextUtils.isEmpty(address)){
             Log.d(TAG, "Can not connect, address is null");
@@ -158,12 +202,14 @@ public class BLEService extends Service {
         BluetoothDevice device = bleAdapter.getRemoteDevice(address);
         if (device == null) {
             Log.d(TAG, "Device not found.  Unable to connect.");
+            showNotification("BLEAndroid", "Device not found.  Unable to connect.", true);
             return;
         }
 
-        Log.d(TAG, "Connecting to " + address);
+        Log.d(TAG, "Connecting to " + name);
         bluetoothGatt = device.connectGatt(this, false, mGattCallback);
         mBluetoothDeviceAddress = address;
+        mBluetoothDeviceName = name;
     }
 
     private final BluetoothGattCallback mGattCallback = new BluetoothGattCallback() {
@@ -171,20 +217,30 @@ public class BLEService extends Service {
         public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
             super.onConnectionStateChange(gatt, status, newState);
             if (newState == BluetoothProfile.STATE_CONNECTED) {
+                BluetoothDevice device = gatt.getDevice();
+                if (device != null){
+                    showNotification("BLEAndroid", "Connected to " + device.getName(), true);
+                    EventBus.getDefault().post(new MainEvents.BLEConnection(1, device.getAddress()));
+
+                    SaveStore.saveString(Constants.KEY_CONNECTED_ADDRESS, device.getAddress());
+                }
+
                 Log.i(TAG, "Connected to GATT server.");
                 // Attempts to discover services after successful connection.
                 Log.i(TAG, "Attempting to start service discovery:" +
                         bluetoothGatt.discoverServices());
 
-                showNotification("BLEAndroid", "Connected to GATT server.", true);
-
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 Log.i(TAG, "Disconnected from GATT server.");
-
+                //Keep connection
                 String address = mBluetoothDeviceAddress;
+
                 disconnect();
                 close();
-                connect(address);
+
+                //Reconnect
+//                connect(address, mBluetoothDeviceName);
+
             }
         }
 
@@ -274,7 +330,7 @@ public class BLEService extends Service {
 
         // This is specific to Heart Rate Measurement.
         if (heartRateMeasurementCharacteristicCBUUID.toLowerCase().equals(characteristic.getUuid().toString().toLowerCase())) {
-
+            
             List<BluetoothGattDescriptor> bluetoothGattDescriptors =  characteristic.getDescriptors();
             for (BluetoothGattDescriptor descriptor : bluetoothGattDescriptors){
                 Log.d(TAG, "descriptor: " + descriptor.getUuid());
