@@ -6,16 +6,12 @@ import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothManager;
 import android.bluetooth.le.BluetoothLeScanner;
-import android.bluetooth.le.ScanCallback;
-import android.bluetooth.le.ScanResult;
-import android.bluetooth.le.ScanSettings;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Handler;
-import android.os.ParcelUuid;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.util.Log;
@@ -24,13 +20,10 @@ import android.view.MenuItem;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ListView;
-import org.greenrobot.eventbus.EventBus;
-import java.util.ArrayList;
-import java.util.List;
-import androidx.annotation.NonNull;
-import no.nordicsemi.android.support.v18.scanner.BluetoothLeScannerCompat;
 
-public class MainActivity extends AppCompatActivity{
+import org.greenrobot.eventbus.EventBus;
+
+public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = MainActivity.class.getSimpleName();
 
@@ -48,16 +41,17 @@ public class MainActivity extends AppCompatActivity{
     private LeDeviceListAdapter mLeDeviceListAdapter;
     ListView listView;
 
+    EventBus bus = EventBus.getDefault();
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         setTitle("Devices");
+
         mHandler = new Handler();
 
         listView = findViewById(R.id.listView);
-
-        EventBus.getDefault().register(this);
 
         bleManager = (BluetoothManager)getSystemService(Context.BLUETOOTH_SERVICE);
         bleAdapter = bleManager.getAdapter();
@@ -108,9 +102,20 @@ public class MainActivity extends AppCompatActivity{
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        EventBus.getDefault().register(this);
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        EventBus.getDefault().unregister(this);
+    }
+
+    @Override
     protected void onDestroy() {
         super.onDestroy();
-        EventBus.getDefault().unregister(this);
     }
 
     @org.greenrobot.eventbus.Subscribe
@@ -235,17 +240,6 @@ public class MainActivity extends AppCompatActivity{
         invalidateOptionsMenu();
 
         Log.d(TAG , "Scanning...");
-
-//        BluetoothLeScannerCompat scanner = BluetoothLeScannerCompat.getScanner();
-//        no.nordicsemi.android.support.v18.scanner.ScanSettings settings = new no.nordicsemi.android.support.v18.scanner.ScanSettings.Builder()
-//                .setLegacy(false)
-//                .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
-//                .setUseHardwareBatchingIfSupported(true)
-//                .build();
-//        List<no.nordicsemi.android.support.v18.scanner.ScanFilter> filters = new ArrayList<>();
-//        filters.add(new no.nordicsemi.android.support.v18.scanner.ScanFilter.Builder().build());
-//        scanner.startScan(filters, settings, scanCallback);
-
         scan();
     }
 
@@ -254,9 +248,6 @@ public class MainActivity extends AppCompatActivity{
         mScanning = false;
 
         stopScanService();
-//        BluetoothLeScannerCompat scanner = BluetoothLeScannerCompat.getScanner();
-//        scanner.stopScan(scanCallback);
-
         invalidateOptionsMenu();
     }
 
@@ -295,59 +286,4 @@ public class MainActivity extends AppCompatActivity{
             startService(service);
         }
     }
-
-    private no.nordicsemi.android.support.v18.scanner.ScanCallback scanCallback = new no.nordicsemi.android.support.v18.scanner.ScanCallback(){
-
-        @Override
-        public void onScanResult(int callbackType, @NonNull no.nordicsemi.android.support.v18.scanner.ScanResult result) {
-            super.onScanResult(callbackType, result);
-            Log.d(TAG, "Found: Device Name: " + result.getDevice().getName() + "Device Address: " + result.getDevice().getAddress() +
-                    " rssi: " + result.getRssi() +
-                    "\n");
-            mLeDeviceListAdapter.addDevice(result.getDevice());
-            mLeDeviceListAdapter.notifyDataSetChanged();
-        }
-
-        @Override
-        public void onBatchScanResults(@NonNull List<no.nordicsemi.android.support.v18.scanner.ScanResult> results) {
-            super.onBatchScanResults(results);
-            Log.d(TAG, "result: " + results);
-            for (final no.nordicsemi.android.support.v18.scanner.ScanResult scanResult : results){
-                Log.d(TAG, "Found: Device Name: " + scanResult.getDevice().getName() + "Device Address: " + scanResult.getDevice().getAddress() +
-                        " rssi: " + scanResult.getRssi() +
-                        "\n");
-                runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        mLeDeviceListAdapter.addDevice(scanResult.getDevice());
-                        mLeDeviceListAdapter.notifyDataSetChanged();
-                    }
-                });
-            }
-            stopScan();
-        }
-
-        @Override
-        public void onScanFailed(int errorCode) {
-            super.onScanFailed(errorCode);
-            stopScan();
-        }
-    };
-
-    private ScanCallback leScanCallback = new ScanCallback() {
-        @Override
-        public void onScanResult(int callbackType, ScanResult result) {
-
-            Log.d(TAG, "Found: Device Name: " + result.getDevice().getName() + "Device Address: " + result.getDevice().getAddress() +
-                    " rssi: " + result.getRssi() +
-                    "\n");
-
-            ParcelUuid[] uuids = result.getDevice().getUuids();
-            if (uuids != null) {
-                for (ParcelUuid uuid : result.getDevice().getUuids()) {
-                    Log.d(TAG, "uuid: " + uuid.toString());
-                }
-            }
-        }
-    };
 }

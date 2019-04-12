@@ -33,6 +33,7 @@ import android.util.Log;
 
 import org.greenrobot.eventbus.EventBus;
 
+import java.io.UnsupportedEncodingException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
@@ -41,20 +42,9 @@ public class BLEService extends Service {
 
     private static final String TAG = BLEService.class.getSimpleName();
 
-    private static final String heartRateServiceCBUUID = "AB0828B1-198E-4351-B779-901FA0E0371E";
+    private static final String serviceCBUUID = "AB0828B1-198E-4351-B779-901FA0E0371E";
+    private static final String characteristicCBUUID = "0972EF8C-7613-4075-AD52-756F33D4DA91";
 
-    private static final String heartRateMeasurementCharacteristicCBUUID = "0972EF8C-7613-4075-AD52-756F33D4DA91";
-
-    private static final String CHARACTERISTIC_UPDATE_NOTIFICATION_DESCRIPTOR_UUID = "0002902-0000-1000-8000-00805f9b34fb";
-    private static final String bodySensorLocationCharacteristicCBUUID = "A10A608E-ECAC-4A9F-9BDC-9624DAC4C423";
-
-//    private static final String heartRateServiceCBUUID = "F4FFFD0B-549C-4A3A-91CB-C5886BD972CD";
-//    private static final String bodySensorLocationCharacteristicCBUUID = "A10A608E-ECAC-4A9F-9BDC-9624DAC4C423";
-//    private static final String heartRateMeasurementCharacteristicCBUUID = "11F974B5-41E7-459B-A1E1-2A4906466A1D";
-//    private static final String CHARACTERISTIC_UPDATE_NOTIFICATION_DESCRIPTOR_UUID = "0002902-0000-1000-8000-00805f9b34fb";
-
-    private static final ParcelUuid UID_SERVICE =
-            ParcelUuid.fromString(heartRateServiceCBUUID);
 
     BluetoothManager bleManager;
     BluetoothAdapter bleAdapter;
@@ -62,6 +52,8 @@ public class BLEService extends Service {
     BluetoothGatt bluetoothGatt;
     String mBluetoothDeviceAddress;
     String mBluetoothDeviceName;
+    boolean isReconnecting;
+    boolean hasWaitingNotification;
 
     @Override
     public IBinder onBind(Intent intent) {
@@ -110,14 +102,16 @@ public class BLEService extends Service {
         disconnect();
         close();
     }
-    //147 doc lap
+
     public void disconnect() {
 
         SaveStore.saveString(Constants.KEY_CONNECTED_ADDRESS, null);
 
         EventBus.getDefault().post(new MainEvents.BLEConnection(0, mBluetoothDeviceAddress));
 
-        showNotification("BLEAndroid", "Disconnected", true);
+        if (!isReconnecting){
+            showNotification("BLEAndroid", "Disconnected", true);
+        }
 
         if (bleAdapter == null || bluetoothGatt == null) {
             Log.w(TAG, "BluetoothAdapter not initialized");
@@ -160,14 +154,6 @@ public class BLEService extends Service {
         public void onScanResult(int callbackType, ScanResult result) {
             Log.d(TAG, "Found: Device Name: " + result.getDevice().getName() + "Device Address: " + result.getDevice().getAddress()  + " rssi: " + result.getRssi() + "\n");
             EventBus.getDefault().post(new MainEvents.BLEScanning(result.getDevice()));
-
-//            showNotification("BLEAndroid", "Found: Device Name: " + result.getDevice().getName(), true);
-//
-//            //Stop scan if found
-//            bleScanner.stopScan(leScanCallback);
-//            Log.d(TAG , "Stopped");
-//
-//            connect(result.getDevice().getAddress(), result.getDevice().getName());
         }
 
         @Override
@@ -217,6 +203,8 @@ public class BLEService extends Service {
         public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
             super.onConnectionStateChange(gatt, status, newState);
             if (newState == BluetoothProfile.STATE_CONNECTED) {
+                isReconnecting = false;
+                hasWaitingNotification = false;
                 BluetoothDevice device = gatt.getDevice();
                 if (device != null){
                     showNotification("BLEAndroid", "Connected to " + device.getName(), true);
@@ -226,20 +214,31 @@ public class BLEService extends Service {
                 }
 
                 Log.i(TAG, "Connected to GATT server.");
+                boolean success = bluetoothGatt.discoverServices();
+
                 // Attempts to discover services after successful connection.
-                Log.i(TAG, "Attempting to start service discovery:" +
-                        bluetoothGatt.discoverServices());
+                Log.i(TAG, "Attempting to start service discovery:" + success);
 
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 Log.i(TAG, "Disconnected from GATT server.");
-                //Keep connection
+
                 String address = mBluetoothDeviceAddress;
 
                 disconnect();
                 close();
 
+                //Keep connection
                 //Reconnect
-//                connect(address, mBluetoothDeviceName);
+                isReconnecting = true;
+
+                if (isReconnecting){
+                    if (!hasWaitingNotification){
+                        showNotification("BLEAndroid", "Waiting for device...", true);
+                        hasWaitingNotification = true;
+                    }
+                }
+
+                connect(address, mBluetoothDeviceName);
 
             }
         }
@@ -253,17 +252,13 @@ public class BLEService extends Service {
                 List<BluetoothGattService> bluetoothGattServices = getSupportedGattServices();
                 for (BluetoothGattService gattService : bluetoothGattServices){
 
-                    if (gattService.getUuid().equals(UUID.fromString(heartRateServiceCBUUID))){
+                    if (gattService.getUuid().equals(UUID.fromString(serviceCBUUID))){
                         List<BluetoothGattCharacteristic> gattCharacteristics =
                                 gattService.getCharacteristics();
                         // Loops through available Characteristics.
                         for (BluetoothGattCharacteristic gattCharacteristic : gattCharacteristics) {
 
-                            if (gattCharacteristic.getUuid().equals(UUID.fromString(bodySensorLocationCharacteristicCBUUID))){
-                                //readCharacteristic(gattCharacteristic);
-                            }
-
-                            if (gattCharacteristic.getUuid().equals(UUID.fromString(heartRateMeasurementCharacteristicCBUUID))){
+                            if (gattCharacteristic.getUuid().equals(UUID.fromString(characteristicCBUUID))){
                                 setCharacteristicNotification(gattCharacteristic, true);
                             }
                         }
@@ -277,19 +272,21 @@ public class BLEService extends Service {
             }
         }
 
+
         @Override
         public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
             super.onCharacteristicChanged(gatt, characteristic);
-            Log.d(TAG, characteristic.toString());
 
+            //Parse data
             final byte[] data = characteristic.getValue();
             if (data != null && data.length > 0) {
-                final StringBuilder stringBuilder = new StringBuilder(data.length);
-                for(byte byteChar : data)
-                    stringBuilder.append(String.format("%02X ", byteChar));
-                Log.d(TAG, "Changed: " + " " + stringBuilder.toString());
+                try {
+                    String dataStr = new String(data, "UTF-8");
+                    showNotification("BLEAndroid", "Changed: " + dataStr, true);
 
-                showNotification("BLEAndroid", "Changed: " + " " + stringBuilder.toString(), true);
+                } catch (UnsupportedEncodingException e) {
+                    e.printStackTrace();
+                }
             }
         }
 
@@ -324,26 +321,25 @@ public class BLEService extends Service {
 
         if (characteristic.getProperties() != BluetoothGattCharacteristic.PROPERTY_NOTIFY){
             return;
-        }//00002901-0000-1000-8000-00805f9b34fb 00002902-0000-1000-8000-00805f9b34fb
+        }
+
+        showNotification("BLEAndroid", "Enable notifications", true);
 
         bluetoothGatt.setCharacteristicNotification(characteristic, enabled);
 
         // This is specific to Heart Rate Measurement.
-        if (heartRateMeasurementCharacteristicCBUUID.toLowerCase().equals(characteristic.getUuid().toString().toLowerCase())) {
-            
+        if (characteristicCBUUID.toLowerCase().equals(characteristic.getUuid().toString().toLowerCase())) {
+
             List<BluetoothGattDescriptor> bluetoothGattDescriptors =  characteristic.getDescriptors();
             for (BluetoothGattDescriptor descriptor : bluetoothGattDescriptors){
                 Log.d(TAG, "descriptor: " + descriptor.getUuid());
-//                descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
-//                boolean success = bluetoothGatt.writeDescriptor(descriptor);
-//                Log.d(TAG, "Write descriptor " + success);
-            }
 
-            BluetoothGattDescriptor bluetoothGattDescriptor = characteristic.getDescriptor(UUID.fromString(CHARACTERISTIC_UPDATE_NOTIFICATION_DESCRIPTOR_UUID));
-            if (bluetoothGattDescriptor != null){
-                bluetoothGattDescriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
-                boolean success = bluetoothGatt.writeDescriptor(bluetoothGattDescriptor);
+
+                descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
+                boolean success = bluetoothGatt.writeDescriptor(descriptor);
                 Log.d(TAG, "Write descriptor " + success);
+
+                showNotification("BLEAndroid", "Write descriptor " + success, true);
             }
         }
     }
